@@ -21,10 +21,23 @@ import (
 	"strings"
 
 	cnilibrary "github.com/containernetworking/cni/libcni"
+	cnitypes "github.com/containernetworking/cni/pkg/types/current"
 	"github.com/pkg/errors"
 )
 
 type CNIOpt func(c *libcni) error
+
+func checkVersion(conf *cnilibrary.NetworkConfig) bool {
+	if (conf.Network.CNIVersion == "") {
+		return (conf.Network.Type != "loopback")
+	}
+	for _, version := range cnitypes.SupportedVersions {
+		if (version == conf.Network.CNIVersion) {
+			return true
+		}
+	}
+	return false
+}
 
 // WithInterfacePrefix sets the prefix for network interfaces
 // e.g. eth or wlan
@@ -212,15 +225,19 @@ func loadFromConfDir(c *libcni, max int) error {
 			if err != nil {
 				return errors.Wrapf(ErrInvalidConfig, "failed to load CNI config file %s: %v", confFile, err)
 			}
-			// Ensure the config has a "type" so we know what plugin to run.
-			// Also catches the case where somebody put a conflist into a conf file.
-			if conf.Network.Type == "" {
-				return errors.Wrapf(ErrInvalidConfig, "network type not found in %s", confFile)
-			}
+			if (checkVersion(conf)) {
+				// Ensure the config has a "type" so we know what plugin to run.
+				// Also catches the case where somebody put a conflist into a conf file.
+				if conf.Network.Type == "" {
+					return errors.Wrapf(ErrInvalidConfig, "network type not found in %s", confFile)
+				}
 
-			confList, err = cnilibrary.ConfListFromConf(conf)
-			if err != nil {
-				return errors.Wrapf(ErrInvalidConfig, "failed to convert CNI config file %s to list: %v", confFile, err)
+				confList, err = cnilibrary.ConfListFromConf(conf)
+				if err != nil {
+					return errors.Wrapf(ErrInvalidConfig, "failed to convert CNI config file %s to list: %v", confFile, err)
+				}
+			} else {
+				return errors.Wrapf(ErrInvalidConfig, "unsupported CNI Version in CNI config file %s", confFile)
 			}
 		}
 		if len(confList.Plugins) == 0 {
